@@ -93,7 +93,7 @@ const FooMaterial = new shaderMaterial(
 			// cnoise, grid, grain
 			float n1 = cnoise(vec3(stretchedUv * uNoise1Scale, uTime * 0.125)) * 4.0;
 			float n2 = n1 * gnoise(vec3(squareUv * uNoise2Scale, uGNoiseOffset), 1.0) * 4.0;
-			n2 *= (random(stretchedUv * 2.0) * 0.5) + 0.5;
+			n2 *= (random(squareUv * 2.0) * 0.5) + 0.5;
 
 			// apply gradient
 			vec3 colorMix = getGradient(
