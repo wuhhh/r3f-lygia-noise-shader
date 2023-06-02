@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  @apply w-full h-full m-0 p-0 bg-[#356e7b] overflow-hidden select-none;
+}
+
+#root {
+  @apply overflow-auto;
+}
+
+body {
+  @apply fixed overflow-hidden overscroll-y-none;
+}
+
+.logomark {
+  @apply absolute bottom-[12px] left-[18px] w-auto h-[26px] sm:bottom-[28px] sm:left-[34px];
+}
