@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import React, { useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { extend, Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Plane, shaderMaterial } from "@react-three/drei";
 import { useControls } from "leva";
@@ -8,6 +8,7 @@ const FooMaterial = new shaderMaterial(
   {
     uTime: 0.0,
     uAspect: 1.0,
+    uMouse: new THREE.Vector2(0, 0),
     uUvXScale: 1.0,
     uUvYScale: 1.0,
     uNoise1Scale: 8.0,
@@ -22,6 +23,8 @@ const FooMaterial = new shaderMaterial(
     uColorStop3: 0.75,
     uColorStop4: 1.0,
     uHueShift: 0.0,
+    uVignette: false,
+    uVignetteSize: 0.1,
   },
   // vertex shader ⚡
   resolveLygia(`
@@ -30,8 +33,6 @@ const FooMaterial = new shaderMaterial(
 		
     void main() {
       vUv = uv;
-			// vUv.y *= uAspect;
-			// vUv.y += (1.0 - uAspect) * 0.5;
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
   `),
@@ -39,6 +40,7 @@ const FooMaterial = new shaderMaterial(
   resolveLygia(`
 		uniform float uAspect;
     uniform float uTime;
+		uniform vec2 uMouse;
 		uniform float uUvXScale;
 		uniform float uUvYScale;
 		uniform float uNoise1Scale;
@@ -53,6 +55,8 @@ const FooMaterial = new shaderMaterial(
 		uniform float uColorStop3;
 		uniform float uColorStop4;
 		uniform float uHueShift;
+		uniform bool uVignette;
+		uniform float uVignetteSize;
     varying vec2 vUv;
 
 		// https://stackoverflow.com/a/37426532
@@ -82,6 +86,8 @@ const FooMaterial = new shaderMaterial(
     void main() {
 			// square uv for grid (prevents squishing)
 			vec2 squareUv = vUv;
+			// squareUv.x += uMouse.x * 0.2;
+			// squareUv.y -= uMouse.y * 0.2;
 			squareUv.y /= uAspect;
 			squareUv.y += (1.0 - uAspect) * 0.5;
 
@@ -90,9 +96,13 @@ const FooMaterial = new shaderMaterial(
 			stretchedUv.y *= uUvXScale;
 			stretchedUv.x *= uUvYScale;
 
+			float timeMult = uTime + uMouse.x * 2.0;
+
 			// cnoise, grid, grain
-			float n1 = cnoise(vec3(stretchedUv * uNoise1Scale, uTime * 0.125)) * 4.0;
-			float n2 = n1 * gnoise(vec3(squareUv * uNoise2Scale, uGNoiseOffset), 1.0) * 4.0;
+			// float n1 = cnoise(vec3(stretchedUv * uNoise1Scale, uTime * 0.125)) * 4.0;
+			// float n2 = n1 * gnoise(vec3(squareUv * uNoise2Scale, uGNoiseOffset), 1.0) * 4.0;
+			float n1 = cnoise(vec3(stretchedUv * uNoise1Scale, uMouse.x)) * 4.0;
+			float n2 = n1 * gnoise(vec3(squareUv * uNoise2Scale, uMouse.y), 1.0) * 4.0;
 			n2 *= (random(squareUv * 2.0) * 0.5) + 0.5;
 
 			// apply gradient
@@ -106,10 +116,11 @@ const FooMaterial = new shaderMaterial(
 
 			// hueshift and box vignette
 			vec3 hueShifted = hueShift(colorMix, uHueShift);
-			float boxVignette = insideRectSmooth(vUv, vec2(0.0), vec2(1.0), 0.2);
-			hueShifted *= vec3(boxVignette);
+			float boxVignette = insideRectSmooth(vUv, vec2(0.0), vec2(1.0), uVignetteSize);
+			hueShifted *= (uVignette == true) ? vec3(boxVignette) : vec3(1.0);
 
       gl_FragColor = LinearTosRGB(vec4(vec3(hueShifted), 1.0));
+			// gl_FragColor = LinearTosRGB(vec4(vec3(uMouse.x), 1.0));
     }
   `)
 );
@@ -117,6 +128,8 @@ const FooMaterial = new shaderMaterial(
 extend({ FooMaterial });
 
 const Scene = () => {
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [mousePosEased, setMousePosEased] = useState({ x: 0, y: 0 });
   const { width, height } = useThree(state => state.viewport);
   const foo = useRef();
   const fooProps = useControls("shader", {
@@ -130,7 +143,7 @@ const Scene = () => {
       value: 2.0,
     },
     gNoiseOffset: 0.0,
-    animateGNoise: true,
+    animateGNoise: false,
     color1: "#410b52",
     color2: "#cfceff",
     color3: "#ffbe97",
@@ -165,7 +178,20 @@ const Scene = () => {
       step: 0.05,
       value: 0.95,
     },
+    vignette: false,
+    vignetteSize: 0.1,
   });
+
+  useEffect(() => {
+    window.addEventListener("mousemove", event => {
+      const x = event.pageX / window.innerWidth;
+      const y = event.pageY / window.innerHeight;
+      setMousePos({
+        x,
+        y,
+      });
+    });
+  }, []);
 
   useFrame(state => {
     foo.current.uniforms.uTime.value = state.clock.elapsedTime;
@@ -173,7 +199,21 @@ const Scene = () => {
     if (fooProps.animateGNoise) {
       foo.current.uniforms.uGNoiseOffset.value = state.clock.elapsedTime * 0.1;
     }
+
+    const mouseDistX = mousePos.x - mousePosEased.x;
+    const mouseDistY = mousePos.y - mousePosEased.y;
+
+    setMousePosEased({
+      x: mousePosEased.x + mouseDistX * 0.2 * 0.2,
+      y: mousePosEased.y + mouseDistY * 0.2 * 0.2,
+    });
+
+    // console.log(foo.current.uniforms.uMouse);
+
+    foo.current.uniforms.uMouse.value.x = mousePosEased.x;
+    foo.current.uniforms.uMouse.value.y = mousePosEased.y;
   });
+
   return (
     <Plane scale={[width, height, 1]}>
       <fooMaterial
@@ -193,6 +233,8 @@ const Scene = () => {
         uUvXScale={fooProps.uvXScale}
         uUvYScale={fooProps.uvYScale}
         uHueShift={fooProps.hueShift}
+        uVignette={fooProps.vignette}
+        uVignetteSize={fooProps.vignetteSize}
       />
     </Plane>
   );
@@ -206,7 +248,7 @@ const App = () => {
         <Scene />
       </Canvas>
       <div className='pointer-events-none fixed inset-0 flex justify-center items-center text-[200px] text-white font-sans font-bold'>
-        <span>June 2nd</span>
+        <span>June 3</span>
       </div>
     </>
   );
